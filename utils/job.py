@@ -1,3 +1,5 @@
+import shlex
+from utils import sbatch_line
 # To do:
 # Base job class
 # NERSC-specific job class
@@ -32,12 +34,16 @@ class Job()
 	data_file : str
 		Path to where the data will be saved. The actual saving of the data should be handled 
 
+	script args : list
+		Additional arguments to be passed onto the script
+	
 	metadata : A dictionary of additional metadata that is stored away with the job
 
 '''
 
 	def __init__(self, script, name, jobdir, 
-				 arg_file=None, data_file=None, metadata=None):
+				 arg_file=None, data_file=None, 
+				 script_args = [], metadata=None):
 
 
 		self.script = script
@@ -80,16 +86,16 @@ class NERSCJob(Job)
 		# Store all sbatch params in a dict for easy reference later on
 		self.sbatch_params = {}
 
-	def set_sbatch_properties(self, architecture, qos, 
-							  nodes=1, ntasks=1,
-							  cpu_per_task=1,
-							  time='12:00:00', name = None,
-							  outfile=None, errfile=None,
-							  email='ankit_kumar@berkeley.edu',
-							  mail_type='FAIL',
-							  startup_cmds = None):
+	def init_sbatch_params(self, architecture, qos, 
+					 	   nodes=1, ntasks=1,
+						   cpu_per_task=1,
+						   time='12:00:00', name = None,
+						   outfile=None, errfile=None,
+						   email='ankit_kumar@berkeley.edu',
+						   mail_type='FAIL',
+						   startup_cmds = None):
 	'''
-		method set_sbatch_properties: Assign all properties needed to run the job on NERSC 
+		method init_sbatch_params: Assign all properties needed to run the job on NERSC 
 		
 		architecture : string
 			'knl' or 'haswell'. The NERSC architecture to run the job on
@@ -159,6 +165,32 @@ class NERSCJob(Job)
 
 		self.startup_cmds = startup_cmds
 
+	def edit_sbatch_params(self, key, value):
+	'''
+		function edit sbatch_params: set a specific sbatch param 
+
+		key : str
+			sbatch_params dictionary key to be edited
+
+		value : str
+			value to set. The actual SBATCH flags are externally immutable
+	'''
+
+		self.sbatch_params[key][1] = value
+
+	def srun_statement(self):
+	'''
+		Output srun statement. The default form of this statement
+		is srun python -u self.script self.arg_file self.data_file self.script_args
+	'''
+		srun = 'srun python -u %s %s %s' % (self.script, self.arg_file,
+											self.data_file)
+
+		for arg in self.script_args:
+			srun += ' %s' arg
+
+		return srun
+
 	def gen_sbatch_file(self, path=None):
 	'''
 		function generate_sbatch_file : Given the job's current sbatch_params, generate an sbatch file
@@ -167,4 +199,27 @@ class NERSCJob(Job)
 			Save path of the sbatch file. By default will generate one in the jobdir
 
 	'''
-	
+		if path is None:
+			path = '%s/%s_submit.sh' % (jobdir, self.name)
+
+		with open(path, 'w') as sb:
+            sb.write('#!/bin/bash\n')
+			
+			for key, value in self.sbatch_params.items():
+				sb.write(sbatch_line(key, value))
+
+			sb.write('\n')
+
+			# By default, activate our anaconda environment
+            sb.write('source ~/anaconda3/bin/activate\n')
+            sb.write('source activate nse\n')
+
+            # These settings give good MPI performance (haven't tested
+            # whether this affects job running on the shared queue)
+            sb.write('export OMP_NUM_THREADS=1\n')
+            sb.write('export KMP_AFFINITY=disabled\n')
+
+            # srun statement
+            sb.write(self.srun_statement())
+
+
