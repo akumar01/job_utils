@@ -1,30 +1,30 @@
 from idxpckl import IndexedPickle
 import numpy as np 
 
-class Arg():
+class Param():
 ''' 
-	class Arg: Wrapper class to contain arguments fed to a job object for subsequent execution by
+	class Param: Wrapper class to contain arguments fed to a job object for subsequent execution by
 	compatible script. Support compatibility with multiple file formats used to save the args to 
 	disk. Currently only the IndexedPickle object is supported
 
 	name: str
 		Name of the argument object
 
-	argdir : argdir
+	paramdir : str
 		Directory in which the object can safely store any companion files that arise
 
 '''
 
-	def __init__(self, name, argdir):
+	def __init__(self, name, paramdir):
 
 		self.name = name
-		self.argdir = argdir
+		self.paramdir = paramdir
 
-	def set_args(self, args, meta=None):
+	def set_params(self, params, meta=None):
 		'''
 		function set_args: Assign arguments to this object
 
-		args : list of dicts
+		params : list of dicts
 			List of arguments to be fed into the job as dicts
 
 		meta : dict
@@ -33,21 +33,21 @@ class Arg():
 		'''
 
 
-		self.args = args
+		self.params = params
 		self.meta = meta
 
 	def save(self, file_path = None):
 		'''
-		function save: Save the arguments away as an indexed pickle
+		function save: Save the params away as an indexed pickle
 
 		file_path : str
-			If provided, location where the arg file will be stored. Else, the argdir
+			If provided, location where the param file will be stored. Else, the paramdir
 			attribute will be used, in conjunction with the name attribute. Must include
 			the file extension 
 		'''
 
 		if file_path is None:
-			file_path = '%s/%s.dat' % (self.argdir, self.name)
+			file_path = '%s/%s.dat' % (self.paramdir, self.name)
 
 		ip = IndexedPickle(file_path)
 		if self.meta is None:
@@ -55,55 +55,56 @@ class Arg():
 		else:
 			meta = self.meta
 
-		ip.init_save(len(self.args), meta)
-		for arg in self.args:
-			ip.save(arg)
+		ip.init_save(len(self.params), meta)
+		for param in self.params:
+			ip.save(param)
 		ip.close_save()
 
+		return file_path
+
 	@classmethod
-	def init_from_file(self, file_path, load_args = False):
+	def init_from_file(self, file_path, load_params = False):
 		'''
-		function load : Populate from the args from an indexed pickle file
+		function load : Populate from an indexed pickle file
 
 		file_path : str
 			Path of the file. Must include file path extension
-		load_args : bool
-			Should we load the actual arguments from file? 
+		load_params : bool
+			Should we load the actual params from file? 
 		'''
 
-		argdir, _, name = file_path.rpartition('/')
+		paramdir, _, name = file_path.rpartition('/')
 
-		self.argdir = argdir
+		self.paramdir = paramdir
 		# Take off the file extension
 		self.name = name.split('.')[0]
-
 
 		ip = IndexedPickle(file_path)
 		ip.init_read()
 		self.meta = ip.header
 		ip.close_read()
 
-		if load_args:
-			self.load_args_from_file(file_path)
+		if load_params:
+			self.load_params_from_file(file_path)
 
-	def load_args_from_file(self, file_path=None):
+	def load_params_from_file(self, file_path=None):
 	'''
 		function load_args : Actually load the arguments into memory (potentially memory intensive)
 	'''
 		if file_path is None:
-			file_path = '%s/%s.dat' % (self.argdir, self.name)
+			file_path = '%s/%s.dat' % (self.paramdir, self.name)
 
 		ip = IndexedPickle(file_path)
 		ip.init_read()
-		args = []
+		params = []
 		for idx in np.arange(ip.nobj):
-			args.append(idx.read(idx))
+			params.append(idx.read(idx))
 
-		self.args = args
+		self.params = params
 
 	def split(self, nsplits, file_path = None):
 		'''
-		function split : Take a given arg file, split its arguments into nsplits, and save into separate
+		function split : Take a given param file, split its arguments into nsplits, and save into separate
 		files. If file_path is provided, we append _split%d % i to the provided path. Otherwise, we take 
 		the existing name and dir_path and append _split%d % i
 
@@ -115,26 +116,25 @@ class Arg():
 		Returns a list of the created arg objects
 		'''
 
-		split_args = np.array_split(self.args, nsplits)
+		split_params = np.array_split(self.params, nsplits)
 
 		if file_path is None:
-			file_path = '%s/%s' % (self.argdir, self.name)
-			arg_dir = self.arg_dir
+			file_path = '%s/%s' % (self.paramdir, self.name)
+			param_dir = self.param_dir
 			name = self.name
 		else:
-			arg_dir, _, name = file_path.rpartition('/')
+			param_dir, _, name = file_path.rpartition('/')
 
-		split_arg_names = ['%s_split%d' % (name, i) for i in range(nsplits)]
-		split_file_paths = ['%s/%s_split%d.dat' % (argdir, name, i) for i in range(nsplits)]
+		split_param_names = ['%s_split%d' % (name, i) for i in range(nsplits)]
+		split_file_paths = ['%s/%s_split%d.dat' % (paramdir, name, i) for i in range(nsplits)]
 
-
-		split_args = []
+		split_params = []
 		# Write to file
-		for sa in split_args:
-			a = Arg(name = name, argdir = argdir)
+		for sp in split_params:
+			p = Param(name = name, paramdir = paramdir)
 			# Copy meta
-			a.set_args(sa, meta = self.meta)
-			a.save(file_path = file_path)
-			split_args.append(a)
+			p.set_params(sp, meta = self.meta)
+			p.save(file_path = file_path)
+			split_params.append(p)
 
-		return split_args
+		return split_params
