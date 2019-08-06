@@ -3,144 +3,158 @@ import shutil
 import numpy as np
 import h5py_wrapper
 import pickle
+import time
 from glob import glob
 from copy import deepcopy
 from mpi_utils.ndarray import Gatherv_rows
-
-
+import pdb
 # Class to handle atomic level results containers 
 class ResultsManager():
 
-	def __init__(self, total_tasks, directory): 
+    def __init__(self, total_tasks, directory): 
 
-		self.total_tasks = total_tasks
-		self.directory = directory 
+        self.total_tasks = total_tasks
+        self.directory = directory 
 
-		# Initialize directory structure
-		if not os.path.exists(directory):
-			os.makedirs(directory)
+        # Initialize directory structure
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
-		# save the total tasks away 
-		with open('%s/total_tasks', 'wb' % directory) as f:
-			pickle.dumps(total_tasks, f)
+        # save the total tasks away 
+        with open('%s/total_tasks' % directory, 'wb') as f:
+            pickle.dump(total_tasks, f)
 
-		# Initialize container for children results
-		self.children = []
+        # Initialize container for children results
+        self.children = []
 
-	@classmethod 
-	def restore_from_directory(self, directory):
-		'''
-			function restore_from_directory : grab the inserted indexes and total_tasks
-			from a directory
-		'''
-		self.directory = directory
+    @classmethod 
+    def restore_from_directory(rmanager, directory):
+        '''
+            function restore_from_directory : grab the inserted indexes and total_tasks
+            from a directory
+        '''
 
-		try:
-			f = open('%s/total_tasks' % directory, 'rb')
-		else:
-			raise FileNotFoundError('Could not find record of total_tasks in provided directory')
+        try:
+            f = open('%s/total_tasks' % directory, 'rb')
+        except:
+            raise FileNotFoundError('Could not find record of total_tasks in provided directory')
 
-		self.total_tasks = pickle.load(f)
+        total_tasks = pickle.load(f)
+        rmanager_instance = rmanager(total_tasks, directory)
 
-		# Grab all child files
-		children = glob('%s/child*' % directory)
-		children_idxs = [int(os.path.splittext(child)[0].split('_')[1]) for child in children]
 
-		self.children = [{'path' : children[i], 'idx' : children_idxs[i] for i in range(len(children))}]
+        # Grab all child files
+        children = glob('%s/child*' % directory)
+        children_idxs = [int(os.path.splitext(child)[0].split('child_')[1]) for child in children]
 
-	def add_child(self, data, idx, path=None): 
-		'''
-			function add_child: Insert the data present in the provided file
+        rmanager_instance.children = [{'path' : children[i], 'idx' : children_idxs[i]} for i in range(len(children))]
+        return rmanager_instance
 
-			data : dict 
-				data dictionary that should be of the same format as that initialized by
-				init_structure
+    def inserted_idxs(self):
+        ''' function inserted idxs: Grab all indices of children'''
+        inserted_idxs = [child['idx'] for child in self.children]
 
-			path : str
-				path to file from which data was loaded. If None, nothing will be done 
-				when it comes time to kill children
+        return inserted_idxs
 
-			idx : location in the master list to insert the results
-		'''
+    def add_child(self, data, idx, path=None): 
+        '''
+            function add_child: Insert the data present in the provided file
 
-		if path is None:
-			path = '%s/child_%s.h5' % (self.directory, idx)
+            data : dict 
+                data dictionary that should be of the same format as that initialized by
+                init_structure
 
-		self.children.append({'path' : path, 'idx' ; idx})
+            path : str
+                path to file from which data was loaded. If None, nothing will be done 
+                when it comes time to kill children
 
+            idx : location in the master list to insert the results
+        '''
+
+        if path is None:
+            path = '%s/child_%s.h5' % (self.directory, idx)
+
+        self.children.append({'path' : path, 'idx' : idx})
         h5py_wrapper.save(path, data, write_mode = 'w') 
 
-	def gather_managers(self, comm, root=0):
-		'''
-			function gather_managers: Given a comm object, gather attributes
-			from to the root node
+    def gather_managers(self, comm, root=0):
+        '''
+            function gather_managers: Given a comm object, gather attributes
+            from to the root node
 
-			comm: MPI communicator object 
+            comm: MPI communicator object 
 
-			root: int
-				rank of root node
+            root: int
+                rank of root node
 
-		'''
+        '''
 
-		# Use mpi4py interface (might be slow for many children)
-		children = comm.gather(self.children, root=root)
-		self.children = children
+        # Use mpi4py interface (might be slow for many children)
+        t0 = time.time()
+        print('Gathering!')
+        children = comm.gather(self.children, root=root)
+        print('Gather time: %f' % (time.time() - t0))
 
-	def concatenate(self):
+        if comm.rank == 0:
+            children = [child for sublist in children for child in sublist]
 
-		if len(self.children > 0):
+        self.children = children
 
-			# Sequentially open up children and insert their results into a master
-			# dictionary
-			dummy_dict = h5py_wrapper.load(children[0]['path'])
-			master_dict = init_structure(self.total_tasks, dummy_dict)
+    def concatenate(self):
 
-			for i, child in enumerate(children):
-				child_data = h5py_wrapper.load(child['path'])
-				master_dict = insert_data(master_dict, child_data, child['idx'])
+        if len(self.children) > 0:
 
-			master_data_filepath = os.path.abspath(self.directory, '..', '%.dat' % self.directory)
-			h5py_wrapper.save(master_data_filepath, master_dict, write_mode = 'w')			
+            # Sequentially open up children and insert their results into a master
+            # dictionary
+            dummy_dict = h5py_wrapper.load(self.children[0]['path'])
+            master_dict = init_structure(self.total_tasks, dummy_dict)
 
-	def cleanup(self):
+            for i, child in enumerate(self.children):
+                child_data = h5py_wrapper.load(child['path'])
+                master_dict = insert_data(master_dict, child_data, child['idx'])
 
-		# Delete self.directory and all of its contents: 
-		shutil.rmtree(self.directory)
+            master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
+            h5py_wrapper.save(master_data_filepath, master_dict, write_mode = 'w')          
+
+    def cleanup(self):
+
+        # Delete self.directory and all of its contents: 
+        shutil.rmtree(self.directory)
 
 # Find all array-type fields of the dictionary dict_ and format them as zero-valued arrays 
 # with an additional dimension of size n
 def format_and_expand_dict(dict_, n):
 
-	for key, value in dict_.items():
-		if type(value) == dict:
-			dict_[key] = format_and_expand_dict(value, n)
-		elif type(value) = np.ndarray:
-			dict_[key] = np.zeros((n,) + value.shape)
+    for key, value in dict_.items():
+        if type(value) == dict:
+            dict_[key] = format_and_expand_dict(value, n)
+        elif type(value) == np.ndarray:
+            dict_[key] = np.zeros((n,) + value.shape)
 
-	return dict_
+    return dict_
 
 
 def init_structure(total_tasks, dummy_dict):
-	'''
+    '''
 
-	function init_structure : Replicate the structure of dummy_dict, 
-	but add an additional axis with size total_tasks
+    function init_structure : Replicate the structure of dummy_dict, 
+    but add an additional axis with size total_tasks
 
-	'''
+    '''
 
-	master_dict = dummy_dict.deepcopy()
-	master_dict = format_and_expand_dict(master_dict, total_tasks)
+    master_dict = deepcopy(dummy_dict)
+    master_dict = format_and_expand_dict(master_dict, total_tasks)
 
-	return master_dict
+    return master_dict
 
 # recursively traverse the dictionaries until the ndarray fields are found, and then 
 # inser the child dictionary's data into the mater_dict in the appropriate location 
 def insert_data(master_dict, child_dict, idx):
 
-	for key, value in master_dict.items():
-		if type(value) == dict:
-			value = format_and_expand_dict(value, child_dict[key], idx)
-		elif type(value) == np.ndarray:
-			value[idx, ...] = child_dict[key]
+    for key, value in master_dict.items():
+        if type(value) == dict:
+            value = insert_data(value, child_dict[key], idx)
+        elif type(value) == np.ndarray:
+            value[idx, ...] = child_dict[key]
 
-	return master_dict
+    return master_dict

@@ -40,8 +40,8 @@ class Indexed_Pickle():
         '''
         function read: Return the object stored at the index location idx
         '''
-        self.file.seek(self.index[idx], 0)
-        data = pickle.load(self.file)
+        self.fobj.seek(self.index[idx], 0)
+        data = pickle.load(self.fobj)
         return data
 
     def close_read(self):
@@ -67,7 +67,7 @@ class Indexed_Pickle():
         fobj.seek(0, 0)
 
         # Buffer to be used later on
-        fobj.write(struct.unpack('L', 0))
+        fobj.write(struct.pack('L', 0))
 
         # First pickle away the number of objects to be stored in the file
         fobj.write(pickle.dumps(nobj))
@@ -99,7 +99,7 @@ class Indexed_Pickle():
 
         index_loc = self.fobj.tell()
         self.fobj.write(pickle.dumps(self.index))
-        fobj.seek(0, 0)
+        self.fobj.seek(0, 0)
         # Possibly needs to be changed if we are on Windows!
-        fobj.write(struct.pack('L', index_loc))
-        fobj.close()
+        self.fobj.write(struct.pack('L', index_loc))
+        self.fobj.close()
