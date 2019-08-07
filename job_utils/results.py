@@ -15,17 +15,17 @@ class ResultsManager():
 
         self.total_tasks = total_tasks
         self.directory = directory 
-
-        # Initialize directory structure
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-
-        # save the total tasks away 
-        with open('%s/total_tasks' % directory, 'wb') as f:
-            pickle.dump(total_tasks, f)
-
         # Initialize container for children results
         self.children = []
+
+    def makedir(self):
+        # Initialize directory structure
+        if not os.path.exists(self.directory):
+            os.makedirs(self.directory)
+
+        # save the total tasks away 
+        with open('%s/total_tasks' % self.directory, 'wb') as f:
+            pickle.dump(self.total_tasks, f)
 
     @classmethod 
     def restore_from_directory(rmanager, directory):
