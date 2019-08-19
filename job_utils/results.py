@@ -8,6 +8,10 @@ from glob import glob
 from copy import deepcopy
 from mpi_utils.ndarray import Gatherv_rows
 import pdb
+
+import awkward as awk
+
+
 # Class to handle atomic level results containers 
 class ResultsManager():
 
@@ -42,23 +46,25 @@ class ResultsManager():
         total_tasks = pickle.load(f)
         rmanager_instance = rmanager(total_tasks, directory)
 
-
         # Grab all child files
         children = glob('%s/child*' % directory)
-        children_idxs = [int(os.path.splitext(child)[0].split('child_')[1]) for child in children]
+        children_idxs = [int(os.path.splitext(child)[0].split('child_')[1]) 
+                         for child in children]
 
-        rmanager_instance.children = [{'path' : children[i], 'idx' : children_idxs[i]} for i in range(len(children))]
+        # Store children information as a list of dicts (mutable)
+        rmanager_instance.children = [{'idx': children_idxs[i], 'path': children[i]} 
+                                      for i in range(len(children))]
+
         return rmanager_instance
 
     def inserted_idxs(self):
         ''' function inserted idxs: Grab all indices of children'''
-        inserted_idxs = [child['idx'] for child in self.children]
+        return self.children['idx']
 
-        return inserted_idxs
 
     def add_child(self, data, idx, path=None): 
         '''
-            function add_child: Insert the data present in the provided file
+            function add_child: Save the child's data and append the child to self.children
 
             data : dict 
                 data dictionary that should be of the same format as that initialized by
@@ -74,7 +80,8 @@ class ResultsManager():
         if path is None:
             path = '%s/child_%s.h5' % (self.directory, idx)
 
-        self.children.append({'path' : path, 'idx' : idx})
+        self.children.append({'idx': idx, 'path': path})
+
         h5py_wrapper.save(path, data, write_mode = 'w') 
 
     def gather_managers(self, comm, root=0):
@@ -104,57 +111,53 @@ class ResultsManager():
 
         if len(self.children) > 0:
 
-            # Sequentially open up children and insert their results into a master
-            # dictionary
-            dummy_dict = h5py_wrapper.load(self.children[0]['path'])
-            master_dict = init_structure(self.total_tasks, dummy_dict)
+            # Sequentially open up children and insert their results into an 
+            # awkward array Table class
 
-            for i, child in enumerate(self.children):
-                child_data = h5py_wrapper.load(child['path'])
-                master_dict = insert_data(master_dict, child_data, child['idx'])
+            # Eventually should replace use of h5py_wrapper with something consistent
+            # with awkward_array
+
+            child_data = []
+
+            # Order correctly
+            idxs = [child['idx'] for child in self.children]
+            idx_order = np.argsort(idxs)
+
+            for i in idx_order:
+                child = self.children[i]
+                child_data.append(h5py_wrapper.load(child['path']))
+
+            # Convert the values of child_data to JaggedArrays
+            master_table = awk.fromiter(child_data)
 
             master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
-            h5py_wrapper.save(master_data_filepath, master_dict, write_mode = 'w')          
+            # Use pickle for greater compatibility
+            with open(master_data_filepath, 'wb') as f:
+                f.write(pickle.dumps(master_table))
 
     def cleanup(self):
 
         # Delete self.directory and all of its contents: 
         shutil.rmtree(self.directory)
 
-# Find all array-type fields of the dictionary dict_ and format them as zero-valued arrays 
-# with an additional dimension of size n
-def format_and_expand_dict(dict_, n):
+# Assemble all subdirectories contained in path, initialize a results manager
+# and then call its concatenate and cleanup methods 
+def concat_subdirs(path):
+    subdirs = [f.path for f in os.scandir(path) if f.is_dir()]
 
-    for key, value in dict_.items():
-        if type(value) == dict:
-            dict_[key] = format_and_expand_dict(value, n)
-        elif type(value) == np.ndarray:
-            dict_[key] = np.zeros((n,) + value.shape)
+    for subdir in subdirs:
+        try:
+            rmanager = ResultsManager.restore_from_directory(subdir)
+            rmanager.concatenate()
+        except:
+            pass
 
-    return dict_
+def clean_subdirs(path):
+    subdirs = [f.path for f in os.scandir(path) if f.is_dir()]
 
-
-def init_structure(total_tasks, dummy_dict):
-    '''
-
-    function init_structure : Replicate the structure of dummy_dict, 
-    but add an additional axis with size total_tasks
-
-    '''
-
-    master_dict = deepcopy(dummy_dict)
-    master_dict = format_and_expand_dict(master_dict, total_tasks)
-
-    return master_dict
-
-# recursively traverse the dictionaries until the ndarray fields are found, and then 
-# inser the child dictionary's data into the mater_dict in the appropriate location 
-def insert_data(master_dict, child_dict, idx):
-
-    for key, value in master_dict.items():
-        if type(value) == dict:
-            value = insert_data(value, child_dict[key], idx)
-        elif type(value) == np.ndarray:
-            value[idx, ...] = child_dict[key]
-
-    return master_dict
+    for subdir in subdirs:
+        try:
+            rmanager = ResultsManager.restore_from_directory(subdir)
+            rmanager.cleanup()
+        except:
+            pass
