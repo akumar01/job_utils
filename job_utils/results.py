@@ -116,6 +116,13 @@ class ResultsManager():
             master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
             h5py_wrapper.save(master_data_filepath, master_dict, write_mode = 'w')          
 
+        else:
+
+            # Still create a dummy .dat file to indicate that the job completed
+            dummy_dict = {}
+            master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
+            h5py_wrapper.save(master_data_filepath, dummy_dict, write_mode = 'w')          
+
     def cleanup(self):
 
         # Delete self.directory and all of its contents: 
