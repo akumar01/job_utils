@@ -135,6 +135,14 @@ class ResultsManager():
             with open(master_data_filepath, 'wb') as f:
                 f.write(pickle.dumps(master_table))
 
+        else:
+
+            # If no children are present, create a dummy, empty .dat file to flag that cleanup
+            # was still successful
+            master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
+            with open(master_data_file_path, 'wb') as f:
+                f.write(pickle.dumps(0))
+
     def cleanup(self):
 
         # Delete self.directory and all of its contents: 
