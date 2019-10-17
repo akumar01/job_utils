@@ -4,6 +4,7 @@ import numpy as np
 import h5py_wrapper
 import pickle
 import time
+import datetime
 from glob import glob
 from copy import deepcopy
 from mpi_utils.ndarray import Gatherv_rows
@@ -53,6 +54,15 @@ class ResultsManager():
     def inserted_idxs(self):
         ''' function inserted idxs: Grab all indices of children'''
         inserted_idxs = [child['idx'] for child in self.children]
+
+        return inserted_idxs
+
+    def inserted_idxs_oct(self):
+
+        epoch = datetime.datetime(2019, 10, 6).timestamp()
+
+        # Return any children created prior to October 6th
+        inserted_idxs = [child['idx'] for child in self.children if os.path.getmtime(child['path']) < epoch]
 
         return inserted_idxs
 
