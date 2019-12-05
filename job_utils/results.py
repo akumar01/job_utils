@@ -8,6 +8,7 @@ import datetime
 from glob import glob
 from copy import deepcopy
 from mpi_utils.ndarray import Gatherv_rows
+from mpi4py import MPI
 import pdb
 
 # Class to handle atomic level results containers 
@@ -212,3 +213,12 @@ def insert_data(master_dict, child_dict, idx):
             value[idx, ...] = child_dict[key]
 
     return master_dict
+
+
+if __name__ == '__main__':
+
+    # Instantiate a ResultsManager from the current directory and 
+    # do paralle concatenate
+    rmanager = ResultsManager.restore_from_directory('.')
+    comm = MPI.COMM_WORLD
+    rmanager.parallel_concatenate(comm)
