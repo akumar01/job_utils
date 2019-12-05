@@ -165,8 +165,18 @@ class ResultsManager():
             lookup_table = comm.gather(child_index_lookup_table, root=root)
 
             if rank == 0:
-                print(len(master_dict))
-                print(len(lookup_table))
+                
+                # Flatten the list(s)
+                master_dict = [elem for sublist in master_dict for elem in sublist]
+                lookup_table = [elem for sublist in lookup_table for elem in sublist]
+
+                # Re-order
+                master_dict = [master_dict[lookup_table.index(i)] for i in range(len(master_dict))]
+
+                # Save
+                master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
+                h5py_wrapper.save(master_data_filepath, master_dict, write_mode = 'w')          
+                
 
         else:
             if comm.rank == 0:
