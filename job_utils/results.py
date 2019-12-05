@@ -109,7 +109,7 @@ class ResultsManager():
 
         if comm.rank == 0:
             children = [child for sublist in children for child in sublist]
-
+            print("Hi!")
         self.children = children
 
     def concatenate(self):
@@ -153,16 +153,20 @@ class ResultsManager():
             child_index_lookup_table = np.zeros(len(rank_children))
 
             for i, child in enumerate(rank_children):
-                child_data = h5yp_wrapper.load(child['path'])
+            
+                child_data = h5py_wrapper.load(child['path'])
                 master_dict = insert_data(master_dict, child_data, i)
                 child_index_lookup_table[i] = child['idx']
+                
+                print('rank %d loaded child %d' % (rank, i + 1))
 
             # Gather across ranks
             master_dict = comm.gather(master_dict, root=root)
             lookup_table = comm.gather(child_index_lookup_table, root=root)
 
-            print(len(mater_dict))
-            print(len(lookup_table))
+            if rank == 0:
+                print(len(master_dict))
+                print(len(lookup_table))
 
         else:
             if comm.rank == 0:
