@@ -9,6 +9,7 @@ from glob import glob
 from copy import deepcopy
 from mpi_utils.ndarray import Gatherv_rows
 import pdb
+
 # Class to handle atomic level results containers 
 class ResultsManager():
 
@@ -132,6 +133,42 @@ class ResultsManager():
             dummy_dict = {}
             master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
             h5py_wrapper.save(master_data_filepath, dummy_dict, write_mode = 'w')          
+
+    # Use multiple MPI tasks to do file I/O and then gather + save
+    def parallel_concatenate(self, comm, root=0):
+
+        if len(self.children) > 0:
+
+            rank = comm.rank
+            # Have the parallel workers 
+            children_chunks = np.array_split(self.children, comm.size)
+            rank_children = children_chunks[rank]
+
+            dummy_dict = h5py_wrapper.load(rank_children[0]['path'])
+            master_dict = init_structure(len(rank_children), dummy_dict)
+
+            # Caveat: we cannot use the child index. Instead we must keep
+            # a lookup table to 
+            child_index_lookup_table = np.zeros(len(rank_children))
+
+            for i, child in enumerate(rank_children):
+                child_data = h5yp_wrapper.load(child['path'])
+                master_dict = insert_data(master_dict, child_data, i)
+                child_index_lookup_table[i] = child['idx']
+
+            # Gather across ranks
+            master_dict = comm.gather(master_dict, root=root)
+            lookup_table = comm.gather(child_index_lookup_table, root=root)
+
+            print(len(mater_dict))
+            print(len(lookup_table))
+
+        else:
+            if comm.rank == 0:
+                # Still create a dummy .dat file to indicate that the job completed
+                dummy_dict = {}
+                master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
+                h5py_wrapper.save(master_data_filepath, dummy_dict, write_mode = 'w')          
 
     def cleanup(self):
 
