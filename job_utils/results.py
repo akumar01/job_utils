@@ -148,21 +148,28 @@ class ResultsManager():
             # Just gather a raw list of dictionaries
             child_index_lookup_table = np.zeros(len(rank_children))
             dict_list = []
+
+            bad_children = []
+
             for i, child in enumerate(rank_children):
-            
-                child_data = h5py_wrapper.load(child['path'])
+                try:
+                    child_data = h5py_wrapper.load(child['path'])
+                except:
+                    bad_children.append(child)
                 dict_list.append(child_data)
                 child_index_lookup_table[i] = child['idx']
 
             # Gather across ranks
             dict_list = comm.gather(dict_list, root=root)
             lookup_table = comm.gather(child_index_lookup_table, root=root)
+            bad_children = comm.gather(bad_children, root=root)
 
             if rank == 0:
                 
                 # Flatten the list(s)
                 dict_list = [elem for sublist in dict_list for elem in sublist]
                 lookup_table = np.array([elem for sublist in lookup_table for elem in sublist]).astype(int)
+                bad_children = [elem for sublist in bad_children for elem in sublist]
 
                 print(len(dict_list))
 
@@ -178,7 +185,7 @@ class ResultsManager():
                 print(file_name)
                 master_data_filepath = os.path.abspath('..') + '/%s.dat' % file_name
                 h5py_wrapper.save(master_data_filepath, master_dict, write_mode = 'w')          
-                 
+                return bad_children
 
         else:
             if comm.rank == 0:
@@ -187,6 +194,9 @@ class ResultsManager():
                 file_name = os.path.abspath(self.directory).split('/')[-1]
                 master_data_filepath = os.path.abspath('..') + '/%s.dat' % file_name
                 h5py_wrapper.save(master_data_filepath, dummy_dict, write_mode = 'w')          
+
+                return []
+
 
     def cleanup(self):
 
@@ -237,7 +247,15 @@ if __name__ == '__main__':
     # a results manager within each directory, and concatenate the results
     directories_to_do = glob('*/')    
     
+    # There might be some files that are unable to be opened
+    bad_files = []
+
     for directory in directories_to_do:
         rmanager = ResultsManager.restore_from_directory(directory)
         comm = MPI.COMM_WORLD
-        rmanager.parallel_concatenate(comm)
+        bf = rmanager.parallel_concatenate(comm)
+        bad_files.extend(bf)
+
+    # Save away the list of files that could not be processed. 
+    with open('bad_children.dat', 'wb') as f:
+        f.write(pickle.dumps(bad_files))
