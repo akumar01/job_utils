@@ -1,4 +1,4 @@
-import os
+import sys, os
 import shutil
 import numpy as np
 import h5py_wrapper
@@ -249,18 +249,42 @@ if __name__ == '__main__':
     # Iterate through all folders in the current directory, instantiate
     # a results manager within each directory, and concatenate the results
     directories_to_do = glob('*/')    
-    
-    # There might be some files that are unable to be opened
-    bad_files = []
 
-    for directory in directories_to_do:
-        rmanager = ResultsManager.restore_from_directory(directory)
-        comm = MPI.COMM_WORLD
-        bf = rmanager.parallel_concatenate(comm)
-        if comm.rank == 0:
+    comm_splits = int(sys.argv[1])
+
+    # Split into subcomms so we can split across directories across subcomms
+    comm = MPI.COMM_WORLD
+    rank = comm.rank 
+    numproc = comm.Get_size()
+
+    ranks = np.arange(numproc)
+    split_ranks = np.array_split(ranks, comm_splits)
+    color = [i for i in np.arange(comm_splits) if rank in split_ranks[i]][0]
+    subcomm_roots = [split_ranks[i][0] for i in np.arange(comm_splits)]
+
+    subcomm = comm.Split(color, rank)
+
+    nchunks = comm_splits
+    subrank = subcomm.rank
+    numproc = subcomm.Get_size()
+
+    # Assemble a subset of the directories to each subcomm
+    directory_chunks = np.array_split(directories_to_do, comm_splits)
+
+    bad_files = []
+    for directory in directory_chunks[color]:
+        if subrank == 0:
+            rmanager = ResultsManager.restore_from_directory(directory)
+        else:
+            rmanager = None
+
+        rmanager = subcomm.bcast(rmanager)
+
+        bf = rmanager.parallel_concatenate(subcomm)
+        if subcomm.rank == 0:
             bad_files.extend(bf)
 
-    if comm.rank == 0:
+    if subcomm.rank == 0:
         # Save away the list of files that could not be processed. 
-        with open('bad_children.dat', 'wb') as f:
+        with open('bad_children%d.dat' % color, 'wb') as f:
             f.write(pickle.dumps(bad_files))
