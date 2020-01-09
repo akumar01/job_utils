@@ -146,7 +146,7 @@ class ResultsManager():
             rank_children = children_chunks[rank]
 
             # Just gather a raw list of dictionaries
-            child_index_lookup_table = np.zeros(len(rank_children))
+            child_index_lookup_table = []
             dict_list = []
 
             bad_children = []
@@ -156,8 +156,9 @@ class ResultsManager():
                     child_data = h5py_wrapper.load(child['path'])
                 except:
                     bad_children.append(child)
+                    continue
                 dict_list.append(child_data)
-                child_index_lookup_table[i] = child['idx']
+                child_index_lookup_table.append(child['idx'])
 
             # Gather across ranks
             dict_list = comm.gather(dict_list, root=root)
@@ -175,7 +176,9 @@ class ResultsManager():
 
                 # Follow the normal procedure from concatenate
                 dummy_dict = dict_list[0]
-                master_dict = init_structure(len(dict_list), dummy_dict)
+                # Init the structure to the total number of tasks; won't necessarily fill all of them
+                # because of the presence of bad children
+                master_dict = init_structure(self.total_tasks, dummy_dict)
 
                 for i, dict_ in enumerate(dict_list):
                     master_dict = insert_data(master_dict, dict_, lookup_table[i])
@@ -254,8 +257,10 @@ if __name__ == '__main__':
         rmanager = ResultsManager.restore_from_directory(directory)
         comm = MPI.COMM_WORLD
         bf = rmanager.parallel_concatenate(comm)
-        bad_files.extend(bf)
+        if comm.rank == 0:
+            bad_files.extend(bf)
 
-    # Save away the list of files that could not be processed. 
-    with open('bad_children.dat', 'wb') as f:
-        f.write(pickle.dumps(bad_files))
+    if comm.rank == 0:
+        # Save away the list of files that could not be processed. 
+        with open('bad_children.dat', 'wb') as f:
+            f.write(pickle.dumps(bad_files))
