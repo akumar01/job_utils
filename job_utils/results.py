@@ -145,44 +145,47 @@ class ResultsManager():
             children_chunks = np.array_split(self.children, comm.size)
             rank_children = children_chunks[rank]
 
-            dummy_dict = h5py_wrapper.load(rank_children[0]['path'])
-            master_dict = init_structure(len(rank_children), dummy_dict)
-
-            # Caveat: we cannot use the child index. Instead we must keep
-            # a lookup table to 
+            # Just gather a raw list of dictionaries
             child_index_lookup_table = np.zeros(len(rank_children))
-
+            dict_list = []
             for i, child in enumerate(rank_children):
             
                 child_data = h5py_wrapper.load(child['path'])
-                master_dict = insert_data(master_dict, child_data, i)
+                dict_list.append(child_data)
                 child_index_lookup_table[i] = child['idx']
-                
-                print('rank %d loaded child %d' % (rank, i + 1))
 
             # Gather across ranks
-            master_dict = comm.gather(master_dict, root=root)
+            dict_list = comm.gather(dict_list, root=root)
             lookup_table = comm.gather(child_index_lookup_table, root=root)
 
             if rank == 0:
                 
                 # Flatten the list(s)
-                master_dict = [elem for sublist in master_dict for elem in sublist]
-                lookup_table = [elem for sublist in lookup_table for elem in sublist]
+                dict_list = [elem for sublist in dict_list for elem in sublist]
+                lookup_table = np.array([elem for sublist in lookup_table for elem in sublist]).astype(int)
 
-                # Re-order
-                master_dict = [master_dict[lookup_table.index(i)] for i in range(len(master_dict))]
+                print(len(dict_list))
+
+                # Follow the normal procedure from concatenate
+                dummy_dict = dict_list[0]
+                master_dict = init_structure(len(dict_list), dummy_dict)
+
+                for i, dict_ in enumerate(dict_list):
+                    master_dict = insert_data(master_dict, dict_, lookup_table[i])
 
                 # Save
-                master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
+                file_name = os.path.abspath(self.directory).split('/')[-1]
+                print(file_name)
+                master_data_filepath = os.path.abspath('..') + '/%s.dat' % file_name
                 h5py_wrapper.save(master_data_filepath, master_dict, write_mode = 'w')          
-                
+                 
 
         else:
             if comm.rank == 0:
                 # Still create a dummy .dat file to indicate that the job completed
                 dummy_dict = {}
-                master_data_filepath = os.path.abspath(os.path.join(self.directory, '..', '%s.dat' % self.directory))
+                file_name = os.path.abspath(self.directory).split('/')[-1]
+                master_data_filepath = os.path.abspath('..') + '/%s.dat' % file_name
                 h5py_wrapper.save(master_data_filepath, dummy_dict, write_mode = 'w')          
 
     def cleanup(self):
@@ -228,11 +231,13 @@ def insert_data(master_dict, child_dict, idx):
 
     return master_dict
 
-
 if __name__ == '__main__':
 
-    # Instantiate a ResultsManager from the current directory and 
-    # do paralle concatenate
-    rmanager = ResultsManager.restore_from_directory('.')
-    comm = MPI.COMM_WORLD
-    rmanager.parallel_concatenate(comm)
+    # Iterate through all folders in the current directory, instantiate
+    # a results manager within each directory, and concatenate the results
+    directories_to_do = glob('*/')    
+    
+    for directory in directories_to_do:
+        rmanager = ResultsManager.restore_from_directory(directory)
+        comm = MPI.COMM_WORLD
+        rmanager.parallel_concatenate(comm)
