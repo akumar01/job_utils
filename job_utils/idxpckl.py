@@ -51,13 +51,15 @@ class Indexed_Pickle():
         if hasattr(self, 'fobj'):
             self.fobj.close()
 
-    def init_save(self, nobj, header_data = {}):
+    def init_save(self, nobj=0, header_data = {}):
         '''
         function init_saver: Initialize the file object for saving by 
         placing the preliminary metadata in place at the start of the file
 
         nobj : int
             Number of python objects to be stored in the file
+            This functions essentially as redundant metadata and can safely 
+            be ignored
 
         header_data : dict
             Any other metadata. Not counted in nobj or tracked in the index
