@@ -1,6 +1,11 @@
 import pickle
 import struct 
-
+import pandas as pd
+import resource
+import os
+import glob
+import time
+import pdb
 
 class Indexed_Pickle():
     '''
@@ -105,3 +110,34 @@ class Indexed_Pickle():
         # Possibly needs to be changed if we are on Windows!
         self.fobj.write(struct.pack('L', index_loc))
         self.fobj.close()
+
+    # Take the saved objects in the file and create a dataframe
+    # Requires the saved data to be in the form of appropriately formatted
+    # dictionaries
+    def to_dataframe(self):
+
+        if not hasattr(self, 'index'):
+            self.init_read()
+
+        # # create a temporary directory
+        # os.makedirs('df_tmp')
+
+        # for obj in range(len(self.index)):
+        #     dictlist = self.read(obj)
+        #     print(len(dictlist))
+        #     df = pd.DataFrame(dictlist)
+        #     # Write the dataframe to file
+        #     df.to_pickle('df_tmp/%d.dat' % obj)
+
+        # From each file in the temporary directory, extend a dataframe
+        tmp_files = glob.glob('df_tmp/*.dat')
+        dframe = pd.read_pickle(tmp_files[0])
+        for i, tmp_file in enumerate(tmp_files[1:]):
+            t0 = time.time()
+            dframe = dframe.append(pd.read_pickle(tmp_file))
+            print('%d, %f' % (i, time.time() - t0))
+        return dframe
+
+
+
+
