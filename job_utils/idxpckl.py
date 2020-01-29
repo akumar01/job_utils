@@ -56,6 +56,9 @@ class Indexed_Pickle():
         if hasattr(self, 'fobj'):
             self.fobj.close()
 
+        del self.index
+        del self.fobj
+
     def init_save(self, nobj=0, header_data = {}):
         '''
         function init_saver: Initialize the file object for saving by 
@@ -119,24 +122,17 @@ class Indexed_Pickle():
         if not hasattr(self, 'index'):
             self.init_read()
 
-        # # create a temporary directory
-        # os.makedirs('df_tmp')
-
-        # for obj in range(len(self.index)):
-        #     dictlist = self.read(obj)
-        #     print(len(dictlist))
-        #     df = pd.DataFrame(dictlist)
-        #     # Write the dataframe to file
-        #     df.to_pickle('df_tmp/%d.dat' % obj)
-
-        # From each file in the temporary directory, extend a dataframe
-        tmp_files = glob.glob('df_tmp/*.dat')
-        dframe = pd.read_pickle(tmp_files[0])
-        for i, tmp_file in enumerate(tmp_files[1:]):
+        df_seed = self.read(0)
+        df = pd.DataFrame(df_seed)
+        for i, obj in enumerate(range(len(self.index[1:]))):
             t0 = time.time()
-            dframe = dframe.append(pd.read_pickle(tmp_file))
-            print('%d, %f' % (i, time.time() - t0))
-        return dframe
+            dictlist = self.read(obj)
+            df = df.append(pd.DataFrame(dictlist))            
+            print('%d, %f' % (i, time.time() -t0))
+
+        self.close_read()
+
+        return df
 
 
 
